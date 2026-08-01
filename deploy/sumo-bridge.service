@@ -1,0 +1,40 @@
+[Unit]
+Description=NHK Grand Sumo Highlights bridge for Sonarr
+Documentation=https://github.com/Devon-Dickson/sumo/blob/main/docs/PROXMOX.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=sumobridge
+Group=media
+
+# 0002 keeps finished files group-writable so Sonarr, running as a different
+# user on the shared volume, can move and delete them after importing.
+UMask=0002
+
+EnvironmentFile=/etc/sumo-bridge/sumo-bridge.env
+ExecStart=/opt/sumo-bridge/venv/bin/sumobridge
+
+Restart=on-failure
+RestartSec=10s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+
+# Queue and history live here (SUMO_STATE_FILE=/var/lib/sumo-bridge/state.json).
+StateDirectory=sumo-bridge
+
+# ProtectSystem=strict makes the whole filesystem read-only apart from what is
+# listed here. This must match the shared download mount from the env file --
+# if you mount it somewhere other than /downloads, change this line too or the
+# service will fail with "Read-only file system".
+ReadWritePaths=/downloads
+
+[Install]
+WantedBy=multi-user.target

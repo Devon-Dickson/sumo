@@ -57,8 +57,12 @@ reads the library Sonarr maintains.
 
 ### Setup
 
-Full walkthrough — including the Sonarr and Jellyfin screens — is in
-[docs/SETUP.md](docs/SETUP.md). The short version:
+- [docs/SETUP.md](docs/SETUP.md) — Docker Compose, and the Sonarr/Jellyfin
+  screens in detail.
+- [docs/PROXMOX.md](docs/PROXMOX.md) — running it on Proxmox, either inside an
+  existing LXC or in one of its own, alongside a real SABnzbd.
+
+The short version:
 
 ```bash
 cp .env.example .env
