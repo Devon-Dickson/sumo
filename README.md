@@ -1,0 +1,95 @@
+# sumo
+
+Code and configuration for consuming Sumo content.
+
+Eventually this will grow into a webapp for keeping up with grand sumo
+tournaments and the news between them. The first piece is **sumo-bridge**,
+which gets NHK WORLD-JAPAN's *GRAND SUMO Highlights* into Sonarr and Jellyfin.
+
+## sumo-bridge
+
+NHK publishes a ~28 minute highlights episode for each of the fifteen days of
+every tournament, free and unauthenticated, as an HLS stream. Sonarr can't
+fetch an HLS stream, and there's no indexer carrying these.
+
+sumo-bridge sits between them and speaks the two protocols Sonarr already
+knows:
+
+```
+        ┌───────────────────────── sumo-bridge ─────────────────────────┐
+        │                                                               │
+NHK  ──▶│  Newznab indexer  ──── advertises episodes as releases        │
+shows   │        ▲                                                      │
+API     │        │ search / RSS                                         │
+        │  ┌─────┴──────┐                                               │
+        │  │   Sonarr   │                                               │
+        │  └─────┬──────┘                                               │
+        │        │ "download this NZB"                                  │
+        │        ▼                                                      │
+        │  SABnzbd client  ──── runs yt-dlp, writes an .mkv ────────────┼──▶ /downloads/complete
+        │                                                               │
+        └───────────────────────────────────────────────────────────────┘
+                                                                             │ Sonarr imports + renames
+                                                                             ▼
+                                                                        Jellyfin library
+```
+
+Sonarr does the monitoring, grabbing, renaming and importing exactly as it
+would for any other series, so Jellyfin needs no special handling — it just
+reads the library Sonarr maintains.
+
+### What it does
+
+- Reads the episode list from NHK's public shows API (no key, no scraping).
+- Maps each episode onto TheTVDB's numbering for
+  [Grand Sumo Highlights](https://thetvdb.com/series/grand-sumo-highlights)
+  (series 391618), which numbers seasons by year and episodes sequentially
+  across the year's six tournaments. Day 1 of the July (Nagoya) tournament in
+  2026 is `S2026E46`.
+- Presents each episode as a scene-style release Sonarr's parser understands:
+
+  ```
+  GRAND.SUMO.Highlights.S2026E46.Nagoya.Basho.Day.1.720p.NHKW.WEB-DL.AAC2.0.H.264-SUMOBRIDGE
+  ```
+
+- Downloads with yt-dlp on demand, reporting progress through the SABnzbd
+  queue so Sonarr's Activity tab behaves normally.
+
+### Setup
+
+Full walkthrough — including the Sonarr and Jellyfin screens — is in
+[docs/SETUP.md](docs/SETUP.md). The short version:
+
+```bash
+cp .env.example .env
+# set SUMO_API_KEY to something random: openssl rand -hex 16
+docker compose up -d --build
+curl "http://localhost:8787/health"
+```
+
+Then in Sonarr add a **Newznab** indexer at `http://sumo-bridge:8787` and a
+**SABnzbd** download client at `sumo-bridge:8787` with URL base `sabnzbd`, both
+using the same API key.
+
+### Things worth knowing
+
+- **720p is the ceiling.** NHK's best rendition is 1280x720 H.264. A quality
+  profile that demands 1080p will never grab anything.
+- **Episodes expire.** NHK drops each episode about two weeks after it airs, so
+  there is roughly a two-week window to catch up. Only the current tournament's
+  episodes are ever available; there is no back catalogue to fetch.
+- **ffmpeg is required.** Video and audio are separate HLS renditions and get
+  merged on download. The Docker image includes it.
+- This talks to NHK's public website API the same way a browser does, for
+  personal use. It doesn't circumvent any access control, and it won't reach
+  anything NHK doesn't already serve for free.
+
+### Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+The tests run against a fixture captured from the live API and stub out yt-dlp,
+so they need no network and no ffmpeg.
