@@ -53,10 +53,24 @@ container, or want to cap the bridge's resources separately.
 
 Either way, steps 4 onward are identical.
 
-> **You don't need SSH into the container.** From a shell on the Proxmox node
-> itself (its web UI **>_ Shell** button, or SSH to the node), `pct enter <vmid>`
-> drops you into a root shell in any LXC, whether or not it runs sshd. `pct
-> list` shows the IDs. Everything below assumes you got in that way.
+### Getting a shell
+
+If you can already reach the container directly — SSH, Tailscale, the Proxmox
+web console — use that. **Option A needs no access to the Proxmox node at all:**
+the volume is already mounted and there are no `pct` commands, so a shell in the
+container is the only requirement.
+
+If you can reach the node but not the container, `pct enter <vmid>` from a shell
+on the node (its web UI **>_ Shell** button) drops you into a root shell in any
+LXC, whether or not it runs sshd; `pct list` shows the IDs.
+
+If you can reach *some* containers but not the node — e.g. a Tailscale mesh that
+covers the LXCs but not the hypervisor — install into a container you can reach
+(see below), or use a reachable one as a jump host: LXCs sit on the same LAN as
+the node, so `ssh root@<node-lan-ip>` from inside one usually works.
+
+Option B does need the node, since creating a container and attaching a mount
+point are host operations.
 
 ### Which existing LXC?
 
