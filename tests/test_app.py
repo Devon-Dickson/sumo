@@ -186,15 +186,31 @@ def test_sab_requires_the_key(client):
     assert client.get("/sabnzbd/api", params={"mode": "version"}).status_code == 401
 
 
+def add_via_sonarr(client, nzb, name="release.nzb"):
+    """Replicate Sonarr's actual addfile request.
+
+    Sonarr's SabnzbdProxy.DownloadNzb posts the NZB as a file part named
+    `name` -- not `nzbfile` -- with cat and priority as query parameters.
+    Getting this wrong is what made the first real grab fail with a 400.
+    """
+    return client.post(
+        "/sabnzbd/api",
+        params={
+            "apikey": API_KEY,
+            "mode": "addfile",
+            "cat": "sumo",
+            "priority": "-100",
+            "output": "json",
+        },
+        files={"name": (name, nzb, "application/x-nzb")},
+    )
+
+
 def test_grab_to_import(client, config):
     """The whole Sonarr cycle: fetch NZB, add it, watch it land in history."""
     nzb = client.get("/download/2061900.nzb", params={"apikey": API_KEY}).content
 
-    added = client.post(
-        "/sabnzbd/api",
-        params={"apikey": API_KEY, "mode": "addfile", "cat": "sumo"},
-        files={"nzbfile": ("release.nzb", nzb, "application/x-nzb")},
-    ).json()
+    added = add_via_sonarr(client, nzb).json()
     assert added["status"] is True
     nzo_id = added["nzo_ids"][0]
 
@@ -233,22 +249,33 @@ def test_add_of_an_unknown_episode_fails(client):
 
 
 def test_add_of_junk_fails(client):
-    response = client.post(
+    assert add_via_sonarr(client, b"garbage", "x.nzb").status_code == 400
+
+
+def test_addfile_accepts_the_nzbfile_field_too(client):
+    """SABnzbd's own docs name the field `nzbfile`; other clients may use it."""
+    nzb = client.get("/download/2061900.nzb", params={"apikey": API_KEY}).content
+    added = client.post(
         "/sabnzbd/api",
-        params={"apikey": API_KEY, "mode": "addfile"},
-        files={"nzbfile": ("x.nzb", b"garbage", "application/x-nzb")},
-    )
-    assert response.status_code == 400
+        params={"apikey": API_KEY, "mode": "addfile", "cat": "sumo"},
+        files={"nzbfile": ("release.nzb", nzb, "application/x-nzb")},
+    ).json()
+    assert added["nzo_ids"] == ["SABnzbd_nzo_2061900"]
+
+
+def test_addfile_accepts_a_plain_string_field(client):
+    nzb = client.get("/download/2061893.nzb", params={"apikey": API_KEY}).content
+    added = client.post(
+        "/sabnzbd/api",
+        params={"apikey": API_KEY, "mode": "addfile", "cat": "sumo"},
+        data={"nzbfile": nzb.decode()},
+    ).json()
+    assert added["nzo_ids"] == ["SABnzbd_nzo_2061893"]
 
 
 def test_history_delete_removes_the_files(client):
     nzb = client.get("/download/2061900.nzb", params={"apikey": API_KEY}).content
-    added = client.post(
-        "/sabnzbd/api",
-        params={"apikey": API_KEY, "mode": "addfile"},
-        files={"nzbfile": ("release.nzb", nzb, "application/x-nzb")},
-    ).json()
-    nzo_id = added["nzo_ids"][0]
+    nzo_id = add_via_sonarr(client, nzb).json()["nzo_ids"][0]
     storage = Path(await_history(client, nzo_id)["storage"])
     assert storage.exists()
 

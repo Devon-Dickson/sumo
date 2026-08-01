@@ -23,6 +23,29 @@ log = logging.getLogger(__name__)
 XML_MEDIA_TYPE = "application/xml"
 
 
+async def _uploaded_nzb(form) -> bytes:
+    """Pull the posted NZB out of a multipart form.
+
+    Sonarr uploads it under the field name ``name``; SABnzbd's own docs and
+    some other clients use ``nzbfile``. Rather than guess, take the first part
+    that is actually a file, and fall back to a string field holding raw XML.
+    """
+    if not form:
+        return b""
+
+    for value in form.values():
+        if hasattr(value, "read"):
+            return await value.read()
+
+    for key in ("nzbfile", "name"):
+        value = form.get(key)
+        # Guard against grabbing a genuine string parameter -- `name` doubles
+        # as the command word for queue/history deletes.
+        if isinstance(value, str) and value.lstrip().startswith("<"):
+            return value.encode()
+    return b""
+
+
 def _unauthorised() -> Response:
     return Response(
         content=newznab.error_xml(100, "Incorrect user credentials"),
@@ -171,16 +194,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             return JSONResponse(sabnzbd.config_response(config))
 
         if mode == "addfile":
-            upload = form.get("nzbfile") if form else None
-            # A string here means the NZB was posted as a plain field rather
-            # than a file part; both are worth accepting.
-            if isinstance(upload, str):
-                payload = upload.encode()
-            elif upload is not None:
-                payload = await upload.read()
-            else:
-                payload = b""
-            return await _add(parse_nzb(payload), params.get("nzbname"))
+            return await _add(parse_nzb(await _uploaded_nzb(form)), params.get("nzbname"))
 
         if mode == "addurl":
             return await _add(
