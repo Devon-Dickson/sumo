@@ -4,6 +4,12 @@ Documentation=https://github.com/Devon-Dickson/sumo/blob/main/docs/PROXMOX.md
 After=network-online.target
 Wants=network-online.target
 
+# Wait for the shared volume. An LXC bind mount is already in place before init
+# runs, but a network mount (NFS/CIFS) may not be, and starting without it would
+# fail the ReadWritePaths= namespace setup on every boot. Kept in sync with
+# ReadWritePaths= by the installer.
+RequiresMountsFor=/downloads
+
 [Service]
 Type=exec
 User=sumobridge

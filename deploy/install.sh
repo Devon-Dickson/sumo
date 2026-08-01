@@ -127,6 +127,7 @@ sed -e "s/^User=.*/User=${SERVICE_USER}/" \
     -e "s#^ExecStart=.*#ExecStart=${PREFIX}/venv/bin/sumobridge#" \
     -e "s#^EnvironmentFile=.*#EnvironmentFile=${CONFIG_DIR}/sumo-bridge.env#" \
     -e "s#^ReadWritePaths=.*#ReadWritePaths=${DOWNLOAD_ROOT}#" \
+    -e "s#^RequiresMountsFor=.*#RequiresMountsFor=${DOWNLOAD_ROOT}#" \
     -e "s/^UMask=.*/UMask=${UMASK}/" \
     "${PREFIX}/src/deploy/sumo-bridge.service" \
     > /etc/systemd/system/sumo-bridge.service
