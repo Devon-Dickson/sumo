@@ -22,6 +22,11 @@ MEDIA_GID="${MEDIA_GID:-13000}"
 # unit's ReadWritePaths= (ProtectSystem=strict makes everything else read-only)
 # and the generated env file.
 DOWNLOAD_ROOT="${DOWNLOAD_ROOT:-/downloads}"
+# File-creation mask for finished downloads. 0002 (group-writable) suits a
+# volume with a shared media group. Set 0000 when the volume is 0777 throughout
+# and is shared between containers with different id mappings -- otherwise the
+# importing app can end up unable to delete what this service created.
+UMASK="${UMASK:-0002}"
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -85,6 +90,16 @@ python3 -m venv "${PREFIX}/venv"
 "${PREFIX}/venv/bin/pip" install --quiet --upgrade pip
 "${PREFIX}/venv/bin/pip" install --quiet "${PREFIX}/src"
 
+log "Creating ${DOWNLOAD_ROOT}"
+# systemd refuses to start a unit whose ReadWritePaths= does not exist, so these
+# cannot be left for the service to create on first run.
+mkdir -p "${DOWNLOAD_ROOT}/complete" "${DOWNLOAD_ROOT}/incomplete"
+chown -R "${SERVICE_USER}:${MEDIA_GROUP}" "$DOWNLOAD_ROOT"
+# Mirror the mask the service will run with, so the directories themselves are
+# no more restrictive than the files landing in them.
+dir_mode="$(printf '%04o' $(( 0777 & ~8#${UMASK} )))"
+chmod -R "$dir_mode" "$DOWNLOAD_ROOT"
+
 log "Installing config"
 mkdir -p "$CONFIG_DIR"
 if [[ ! -f "${CONFIG_DIR}/sumo-bridge.env" ]]; then
@@ -112,6 +127,7 @@ sed -e "s/^User=.*/User=${SERVICE_USER}/" \
     -e "s#^ExecStart=.*#ExecStart=${PREFIX}/venv/bin/sumobridge#" \
     -e "s#^EnvironmentFile=.*#EnvironmentFile=${CONFIG_DIR}/sumo-bridge.env#" \
     -e "s#^ReadWritePaths=.*#ReadWritePaths=${DOWNLOAD_ROOT}#" \
+    -e "s/^UMask=.*/UMask=${UMASK}/" \
     "${PREFIX}/src/deploy/sumo-bridge.service" \
     > /etc/systemd/system/sumo-bridge.service
 chmod 644 /etc/systemd/system/sumo-bridge.service
