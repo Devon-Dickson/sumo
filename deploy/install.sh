@@ -18,6 +18,10 @@ SERVICE_USER="${SERVICE_USER:-sumobridge}"
 # LXCs use, or the finished files will not be readable by Sonarr.
 MEDIA_GROUP="${MEDIA_GROUP:-media}"
 MEDIA_GID="${MEDIA_GID:-13000}"
+# Root of the shared volume, as this container sees it. Written into both the
+# unit's ReadWritePaths= (ProtectSystem=strict makes everything else read-only)
+# and the generated env file.
+DOWNLOAD_ROOT="${DOWNLOAD_ROOT:-/downloads}"
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -91,7 +95,10 @@ if [[ ! -f "${CONFIG_DIR}/sumo-bridge.env" ]]; then
         "${CONFIG_DIR}/sumo-bridge.env"
     # Don't ship a default secret -- generate a real one.
     key=$(openssl rand -hex 16 2>/dev/null || head -c16 /dev/urandom | od -An -tx1 | tr -d ' \n')
-    sed -i "s/^SUMO_API_KEY=.*/SUMO_API_KEY=${key}/" "${CONFIG_DIR}/sumo-bridge.env"
+    sed -i -e "s/^SUMO_API_KEY=.*/SUMO_API_KEY=${key}/" \
+           -e "s#^SUMO_COMPLETE_DIR=.*#SUMO_COMPLETE_DIR=${DOWNLOAD_ROOT}/complete#" \
+           -e "s#^SUMO_INCOMPLETE_DIR=.*#SUMO_INCOMPLETE_DIR=${DOWNLOAD_ROOT}/incomplete#" \
+           "${CONFIG_DIR}/sumo-bridge.env"
     log "Generated API key: ${key}"
 else
     log "Keeping existing ${CONFIG_DIR}/sumo-bridge.env"
@@ -104,6 +111,7 @@ sed -e "s/^User=.*/User=${SERVICE_USER}/" \
     -e "s/^Group=.*/Group=${MEDIA_GROUP}/" \
     -e "s#^ExecStart=.*#ExecStart=${PREFIX}/venv/bin/sumobridge#" \
     -e "s#^EnvironmentFile=.*#EnvironmentFile=${CONFIG_DIR}/sumo-bridge.env#" \
+    -e "s#^ReadWritePaths=.*#ReadWritePaths=${DOWNLOAD_ROOT}#" \
     "${PREFIX}/src/deploy/sumo-bridge.service" \
     > /etc/systemd/system/sumo-bridge.service
 chmod 644 /etc/systemd/system/sumo-bridge.service
