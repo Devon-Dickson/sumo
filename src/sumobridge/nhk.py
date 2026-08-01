@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 import httpx
@@ -84,7 +84,9 @@ def _absolute(url: str | None) -> str | None:
     return url if url.startswith("http") else f"{SITE_BASE}{url}"
 
 
-def parse_episode(item: dict) -> Episode | None:
+def parse_episode(
+    item: dict, season_offsets: dict[int, int] | None = None
+) -> Episode | None:
     """Convert one API item into an :class:`Episode`, or ``None`` if unusable."""
     nhk_id = item.get("id")
     video = item.get("video") or {}
@@ -110,6 +112,16 @@ def parse_episode(item: dict) -> Episode | None:
         log.info("skipping episode %s (%s): %s", nhk_id, title, exc)
         return None
 
+    offset = (season_offsets or {}).get(numbering.season)
+    if offset:
+        numbering = replace(numbering, episode=numbering.episode + offset)
+        log.debug(
+            "applied offset %+d to season %d, episode is now %d",
+            offset,
+            numbering.season,
+            numbering.episode,
+        )
+
     images = item.get("images") or []
     thumbnail = None
     if images:
@@ -133,9 +145,16 @@ def parse_episode(item: dict) -> Episode | None:
 class NhkClient:
     """Fetches and caches the episode listing."""
 
-    def __init__(self, lang: str = "en", cache_ttl: int = 300, timeout: float = 20.0):
+    def __init__(
+        self,
+        lang: str = "en",
+        cache_ttl: int = 300,
+        timeout: float = 20.0,
+        season_offsets: dict[int, int] | None = None,
+    ):
         self._url = API_TEMPLATE.format(lang=lang, program=PROGRAM_ID)
         self._cache_ttl = cache_ttl
+        self._season_offsets = season_offsets or {}
         self._timeout = timeout
         self._lock = asyncio.Lock()
         self._cached: list[Episode] = []
@@ -166,7 +185,7 @@ class NhkClient:
             episodes = [
                 episode
                 for item in payload.get("items", [])
-                if (episode := parse_episode(item)) is not None
+                if (episode := parse_episode(item, self._season_offsets)) is not None
             ]
             episodes.sort(key=lambda e: e.aired, reverse=True)
             self._cached = episodes

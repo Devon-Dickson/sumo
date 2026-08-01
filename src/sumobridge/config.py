@@ -38,6 +38,26 @@ def _env_path(name: str, default: str) -> Path:
     return Path(_env(name, default)).expanduser()
 
 
+def _env_season_offsets(name: str) -> dict[int, int]:
+    """Parse ``"2027:-15,2028:-30"`` into ``{2027: -15, 2028: -30}``."""
+    raw = _env(name)
+    if not raw:
+        return {}
+    offsets: dict[int, int] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        season, separator, offset = entry.partition(":")
+        if not separator:
+            raise ValueError(f"{name} entry {entry!r} is not season:offset")
+        try:
+            offsets[int(season)] = int(offset)
+        except ValueError as exc:
+            raise ValueError(f"{name} entry {entry!r} is not season:offset") from exc
+    return offsets
+
+
 @dataclass(frozen=True)
 class Config:
     """All knobs for the bridge. Every field has a usable default."""
@@ -63,6 +83,13 @@ class Config:
     #: yt-dlp format selector. NHK tops out at 720p and serves video and audio
     #: as separate HLS renditions, hence the explicit merge.
     video_format: str = "bestvideo[height<=?720]+bestaudio/best"
+    #: Per-season episode-number corrections, ``{season: offset}``.
+    #:
+    #: Numbering assumes six tournaments a year, fifteen days each. When one is
+    #: cancelled TheTVDB closes the gap rather than leaving it — in 2020 the
+    #: cancelled May basho put Nagoya Day 1 at S2020E31, not E46 — so every
+    #: later tournament that year needs shifting down by 15 per lost basho.
+    season_offsets: dict[int, int] = field(default_factory=dict)
 
     # --- Download handling ----------------------------------------------
     #: Where in-progress downloads live. Must be on the same filesystem as
@@ -93,6 +120,7 @@ class Config:
             video_format=_env(
                 "SUMO_VIDEO_FORMAT", "bestvideo[height<=?720]+bestaudio/best"
             ),
+            season_offsets=_env_season_offsets("SUMO_SEASON_OFFSETS"),
             incomplete_dir=_env_path("SUMO_INCOMPLETE_DIR", "/downloads/incomplete"),
             complete_dir=_env_path("SUMO_COMPLETE_DIR", "/downloads/complete"),
             category=_env("SUMO_CATEGORY", "sumo"),

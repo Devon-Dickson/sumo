@@ -56,7 +56,11 @@ def _unauthorised() -> Response:
 
 def create_app(config: Config | None = None) -> FastAPI:
     config = config or Config.from_env()
-    client = NhkClient(lang=config.lang, cache_ttl=config.cache_ttl)
+    client = NhkClient(
+        lang=config.lang,
+        cache_ttl=config.cache_ttl,
+        season_offsets=config.season_offsets,
+    )
     manager = DownloadManager(config, client)
 
     @contextlib.asynccontextmanager

@@ -88,6 +88,48 @@ using the same API key.
   personal use. It doesn't circumvent any access control, and it won't reach
   anything NHK doesn't already serve for free.
 
+### Keeping it running
+
+It is meant to be left alone between tournaments — Sonarr's RSS sync picks up
+each day's episode on its own. Four things are worth knowing.
+
+**Update yt-dlp occasionally.** This is the most likely thing to break over a
+long gap: NHK changes its delivery, yt-dlp adapts, and a pinned copy from six
+months ago doesn't. A minute's work before each basho:
+
+```bash
+/opt/sumo-bridge/venv/bin/pip install --upgrade yt-dlp
+systemctl restart sumo-bridge
+```
+
+**A cancelled tournament breaks the numbering.** Episode numbers are derived
+arithmetically — six tournaments a year, fifteen days each. When a basho is
+cancelled TheTVDB closes the gap instead of leaving it: in 2020 the cancelled
+May tournament put Nagoya Day 1 at `S2020E31`, not `S2020E46`, and every later
+tournament that year shifted down by 15. If that happens again, correct it
+without touching code:
+
+```ini
+SUMO_SEASON_OFFSETS=2027:-15      # one lost basho; -30 for two
+```
+
+Compare `/health`'s `latest` against TheTVDB at the start of a basho and you'll
+catch it on day one rather than after fifteen misfiled episodes.
+
+**There is no back catalogue.** NHK expires episodes about two weeks after they
+air. If Sonarr is down for a fortnight mid-tournament, those episodes are gone
+for good — nothing can re-fetch them.
+
+**Budget the disk.** Roughly 700 MB an episode, so ~10 GB per tournament, ~60 GB
+a year. Check that Sonarr is set to remove completed downloads, or the finished
+folders pile up alongside the imported library copies.
+
+Upgrading the bridge itself:
+
+```bash
+cd /opt/sumo-bridge/src && git pull && ./deploy/install.sh
+```
+
 ### Development
 
 ```bash

@@ -107,3 +107,17 @@ def test_resolve_rejects_episodes_without_a_day():
 def test_basho_label():
     numbering = resolve("July Tournament Day 15", "", aired(2026, 7, 26))
     assert numbering.basho_label == "Nagoya Basho Day 15"
+
+
+def test_season_offsets_parse_from_the_environment(monkeypatch):
+    from sumobridge.config import Config
+
+    monkeypatch.setenv("SUMO_SEASON_OFFSETS", "2027:-15, 2028:-30")
+    assert Config.from_env().season_offsets == {2027: -15, 2028: -30}
+
+    monkeypatch.setenv("SUMO_SEASON_OFFSETS", "")
+    assert Config.from_env().season_offsets == {}
+
+    monkeypatch.setenv("SUMO_SEASON_OFFSETS", "nonsense")
+    with pytest.raises(ValueError):
+        Config.from_env()

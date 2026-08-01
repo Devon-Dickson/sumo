@@ -78,3 +78,25 @@ def test_expired_flag(items):
     past = Episode(**{**episode.__dict__, "expires_at": datetime(2000, 1, 1, tzinfo=timezone.utc)})
     assert past.expired
     assert not Episode(**{**episode.__dict__, "expires_at": None}).expired
+
+
+def test_season_offset_shifts_the_episode_number(items):
+    """A cancelled basho makes TheTVDB close the gap; the offset restores it.
+
+    2020's May tournament was cancelled and TheTVDB renumbered, putting Nagoya
+    Day 1 at S2020E31 rather than E46 -- 15 lower for every later tournament.
+    """
+    plain = parse_episode(items[2])
+    assert plain.episode == 46
+
+    shifted = parse_episode(items[2], {2026: -15})
+    assert shifted.episode == 31
+    assert shifted.season == 2026
+    # The descriptive label still reflects the real tournament and day.
+    assert shifted.numbering.basho_label == "Nagoya Basho Day 1"
+
+
+def test_season_offset_only_applies_to_the_named_season(items):
+    assert parse_episode(items[2], {2019: -15}).episode == 46
+    assert parse_episode(items[2], {}).episode == 46
+    assert parse_episode(items[2], None).episode == 46
