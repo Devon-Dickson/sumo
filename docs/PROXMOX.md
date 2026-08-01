@@ -53,6 +53,28 @@ container, or want to cap the bridge's resources separately.
 
 Either way, steps 4 onward are identical.
 
+> **You don't need SSH into the container.** From a shell on the Proxmox node
+> itself (its web UI **>_ Shell** button, or SSH to the node), `pct enter <vmid>`
+> drops you into a root shell in any LXC, whether or not it runs sshd. `pct
+> list` shows the IDs. Everything below assumes you got in that way.
+
+### Which existing LXC?
+
+The **Sonarr** LXC is the best host, because its paths are by definition the
+ones Sonarr expects, so no path mapping can ever be wrong.
+
+The **SABnzbd** LXC is a close second and a fine fallback: it already mounts
+the shared volume at the right path with the right ownership, it's already the
+"downloader" in your topology, and Sonarr already reaches it over the network.
+Ports don't collide — real SABnzbd is on 8080, the bridge on 8787. The one
+thing to watch is that Remote Path Mappings in Sonarr are keyed by **host**, so
+an existing mapping for that IP will also apply to the bridge; keeping
+`SUMO_COMPLETE_DIR` under the same root SABnzbd uses makes that work in your
+favour rather than against you.
+
+Any other container works too — it just needs the shared volume mounted and
+network reachability from Sonarr.
+
 ---
 
 # Option A: inside the existing Sonarr LXC
@@ -107,6 +129,19 @@ curl http://127.0.0.1:8787/health
 
 Then skip to **step 4**. In steps 5 and 6, use `127.0.0.1` as the URL and Host,
 and ignore the Remote Path Mapping section entirely — the paths already match.
+
+### If you're installing into the SABnzbd LXC instead
+
+Identical, except substitute SABnzbd's service user and the container's own IP:
+
+```bash
+systemctl show -p User --value sabnzbd        # often 'sabnzbd'
+SERVICE_USER=sabnzbd MEDIA_GROUP=$(id -gn sabnzbd) /tmp/sumo/deploy/install.sh
+```
+
+Set `SUMO_PUBLIC_URL=http://<sabnzbd-lxc-ip>:8787` rather than loopback, since
+Sonarr is fetching those links across the network, and use that same IP as the
+download client's Host in step 6.
 
 > Prefer the Docker image inside an existing LXC? That works too, but the LXC
 > needs `--features nesting=1,keyctl=1` set from the Proxmox host first

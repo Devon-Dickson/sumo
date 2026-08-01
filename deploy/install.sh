@@ -10,6 +10,7 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/Devon-Dickson/sumo.git}"
+REPO_REF="${REPO_REF:-main}"
 PREFIX="${PREFIX:-/opt/sumo-bridge}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/sumo-bridge}"
 SERVICE_USER="${SERVICE_USER:-sumobridge}"
@@ -47,14 +48,33 @@ else
     usermod -aG "$MEDIA_GROUP" "$SERVICE_USER"
 fi
 
-log "Fetching source into ${PREFIX}"
-if [[ -d "${PREFIX}/src/.git" ]]; then
-    git -C "${PREFIX}/src" pull --ff-only
+# Prefer a checkout the script is being run from, so installing an unmerged
+# branch (or a private repo the container can't authenticate to) just works:
+#   git clone -b <branch> <url> /tmp/sumo && sudo /tmp/sumo/deploy/install.sh
+# Piping from curl has no local checkout, so that falls through to cloning.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-/dev/stdin}")" 2>/dev/null && pwd || true)"
+LOCAL_SRC="$(dirname "${SCRIPT_DIR:-/nonexistent}")"
+
+mkdir -p "$PREFIX"
+if [[ -n "$SCRIPT_DIR" && -f "${LOCAL_SRC}/pyproject.toml" ]]; then
+    log "Installing from local checkout ${LOCAL_SRC}"
+    # Copied into PREFIX so upgrades don't depend on a temp dir surviving.
+    if [[ "$(readlink -f "$LOCAL_SRC")" != "$(readlink -f "${PREFIX}/src")" ]]; then
+        rm -rf "${PREFIX}/src"
+        cp -a "$LOCAL_SRC" "${PREFIX}/src"
+    fi
+elif [[ -d "${PREFIX}/src/.git" ]]; then
+    log "Updating existing checkout in ${PREFIX}/src"
+    git -C "${PREFIX}/src" fetch --depth 1 origin "$REPO_REF"
+    git -C "${PREFIX}/src" checkout -B "$REPO_REF" FETCH_HEAD
 else
+    log "Cloning ${REPO_URL} (${REPO_REF})"
     rm -rf "${PREFIX}/src"
-    mkdir -p "$PREFIX"
-    git clone --depth 1 "$REPO_URL" "${PREFIX}/src"
+    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "${PREFIX}/src"
 fi
+
+[[ -f "${PREFIX}/src/pyproject.toml" ]] || \
+    die "no pyproject.toml in ${PREFIX}/src -- wrong branch? try REPO_REF=<branch>"
 
 log "Building virtualenv"
 python3 -m venv "${PREFIX}/venv"
@@ -64,7 +84,9 @@ python3 -m venv "${PREFIX}/venv"
 log "Installing config"
 mkdir -p "$CONFIG_DIR"
 if [[ ! -f "${CONFIG_DIR}/sumo-bridge.env" ]]; then
-    install -m 640 -o root -g "$SERVICE_USER" \
+    # 600 root:root is enough: systemd reads EnvironmentFile= as root before
+    # dropping to the service user, so the API key never needs wider access.
+    install -m 600 -o root -g root \
         "${PREFIX}/src/deploy/sumo-bridge.env.example" \
         "${CONFIG_DIR}/sumo-bridge.env"
     # Don't ship a default secret -- generate a real one.
@@ -80,6 +102,8 @@ log "Installing systemd unit (User=${SERVICE_USER}, Group=${MEDIA_GROUP})"
 # can reuse that host's service account (e.g. SERVICE_USER=sonarr).
 sed -e "s/^User=.*/User=${SERVICE_USER}/" \
     -e "s/^Group=.*/Group=${MEDIA_GROUP}/" \
+    -e "s#^ExecStart=.*#ExecStart=${PREFIX}/venv/bin/sumobridge#" \
+    -e "s#^EnvironmentFile=.*#EnvironmentFile=${CONFIG_DIR}/sumo-bridge.env#" \
     "${PREFIX}/src/deploy/sumo-bridge.service" \
     > /etc/systemd/system/sumo-bridge.service
 chmod 644 /etc/systemd/system/sumo-bridge.service
